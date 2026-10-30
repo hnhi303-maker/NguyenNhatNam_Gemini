@@ -1,0 +1,53 @@
+import os
+import telebot
+from flask import Flask, request
+from google import genai
+
+# Lấy các biến môi trường đã cấu hình trên Render
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+bot = telebot.TeleBot(TOKEN)
+client = genai.Client(api_key=GEMINI_API_KEY)
+app = Flask(__name__)
+
+# Xử lý tin nhắn từ người dùng bằng Gemini 2.0-flash
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    try:
+        user_message = message.text
+        # Gọi Gemini để sinh nội dung trả lời
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=user_message,
+        )
+        bot.reply_to(message, response.text)
+    except Exception as e:
+        bot.reply_to(message, f"Đã có lỗi xảy ra: {e}")
+
+# Định nghĩa tuyến đường (route) Webhook để Telegram bắn dữ liệu về
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Forbidden', 403
+
+# Trang chủ kiểm tra trạng thái
+@app.route('/')
+def index():
+    return "Bot Nguyen Nhat Nam is running via Webhook!", 200
+
+if __name__ == '__main__':
+    # Xóa webhook cũ (nếu có) và thiết lập webhook mới trỏ đến URL trên Render
+    bot.remove_webhook()
+    # URL web service của bạn trên Render
+    render_url = f"https://nguyennhatnam.onrender.com/{TOKEN}"
+    bot.set_webhook(url=render_url)
+    
+    # Chạy ứng dụng web server Flask trên cổng 10000 theo quy định của Render
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
